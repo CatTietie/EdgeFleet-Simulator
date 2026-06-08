@@ -1,0 +1,15 @@
+fastapi>=0.111.0
+uvicorn[standard]>=0.30.0
+pydantic>=2.7
+pydantic-settings>=2.3
+sqlalchemy[asyncio]>=2.0
+asyncpg>=0.29
+alembic>=1.13
+aiomqtt>=2.0
+influxdb-client[async]>=1.40
+aiohttp>=3.9
+redis>=5.0
+pyjwt>=2.8
+passlib[bcrypt]>=1.7
+orjson>=3.10
+python-multipart>=0.0.9
