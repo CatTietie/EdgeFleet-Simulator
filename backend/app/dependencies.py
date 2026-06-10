@@ -10,6 +10,8 @@ async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit
 _rule_engine = None
 _alarm_manager = None
 _influx_query = None
+_dependency_manager = None
+_propagation_engine = None
 
 
 async def get_db():
@@ -29,8 +31,24 @@ def get_influx_query():
     return _influx_query
 
 
-def set_services(rule_engine, alarm_manager, influx_query):
-    global _rule_engine, _alarm_manager, _influx_query
+def get_dependency_manager():
+    return _dependency_manager
+
+
+def get_propagation_engine():
+    return _propagation_engine
+
+
+def set_services(
+    rule_engine,
+    alarm_manager,
+    influx_query,
+    dependency_manager=None,
+    propagation_engine=None,
+):
+    global _rule_engine, _alarm_manager, _influx_query, _dependency_manager, _propagation_engine
     _rule_engine = rule_engine
     _alarm_manager = alarm_manager
     _influx_query = influx_query
+    _dependency_manager = dependency_manager
+    _propagation_engine = propagation_engine

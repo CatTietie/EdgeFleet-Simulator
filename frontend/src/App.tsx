@@ -4,6 +4,7 @@ import Layout from './components/Layout/Layout'
 import LoginPage from './components/Layout/LoginPage'
 import DashboardPage from './components/Dashboard/DashboardPage'
 import RulesPage from './components/Rules/RulesPage'
+import TopologyPage from './components/Topology/TopologyPage'
 
 function App() {
   const token = useAuthStore((s) => s.token)
@@ -25,6 +26,7 @@ function App() {
         <Routes>
           <Route path="/" element={<DashboardPage />} />
           <Route path="/rules" element={<RulesPage />} />
+          <Route path="/topology" element={<TopologyPage />} />
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>
       </Layout>

@@ -131,4 +131,49 @@ class AlarmEventResponse(BaseModel):
     values: dict
     acknowledged: bool
     acknowledged_by: str | None
+    is_derived: bool = False
+    root_cause_device_id: str | None = None
+    root_cause_alarm_id: str | None = None
     created_at: datetime | None = None
+
+
+# Device Dependency
+class DependencyCreate(BaseModel):
+    parent_device_id: str
+    child_device_id: str
+    dependency_type: str = Field(pattern=r"^(gateway_sensor|power_device|switch_device)$")
+
+
+class DependencyResponse(BaseModel):
+    id: str
+    org_id: str
+    parent_device_id: str
+    child_device_id: str
+    dependency_type: str
+    suppress_derived_notifications: bool
+    created_at: datetime | None = None
+
+
+class DependencyUpdate(BaseModel):
+    suppress_derived_notifications: bool | None = None
+
+
+class TopologyNode(BaseModel):
+    device_id: str
+    name: str
+    device_type: str
+    status: str
+    has_active_alarm: bool = False
+
+
+class TopologyEdge(BaseModel):
+    id: str
+    parent_device_id: str
+    child_device_id: str
+    dependency_type: str
+    suppress_derived_notifications: bool
+
+
+class TopologyResponse(BaseModel):
+    nodes: list[TopologyNode]
+    edges: list[TopologyEdge]

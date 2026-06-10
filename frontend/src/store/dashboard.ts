@@ -16,6 +16,9 @@ export interface AlarmEventData {
   severity: string
   values: Record<string, number>
   timestamp_ms: number
+  is_derived?: boolean
+  root_cause_device_id?: string
+  root_cause_alarm_id?: string
 }
 
 interface DashboardState {

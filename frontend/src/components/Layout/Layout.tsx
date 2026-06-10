@@ -25,6 +25,7 @@ export default function Layout({ children }: Props) {
           <nav style={{ display: 'flex', gap: 16 }}>
             <a href="/" style={{ color: '#88f' }}>Dashboard</a>
             <a href="/rules" style={{ color: '#88f' }}>Rules</a>
+            <a href="/topology" style={{ color: '#88f' }}>Topology</a>
           </nav>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>

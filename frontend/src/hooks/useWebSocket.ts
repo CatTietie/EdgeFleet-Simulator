@@ -1,10 +1,12 @@
 import { useEffect, useRef } from 'react'
 import { useAuthStore } from '../store/auth'
 import { useDashboardStore } from '../store/dashboard'
+import { useTopologyStore } from '../store/topology'
 
 export function useWebSocket() {
   const token = useAuthStore((s) => s.token)
   const { updateDevice, updateDeviceStatus, addAlarm } = useDashboardStore()
+  const { updateEdgePropagation, handleTopologyUpdate } = useTopologyStore()
   const wsRef = useRef<WebSocket | null>(null)
 
   useEffect(() => {
@@ -31,13 +33,21 @@ export function useWebSocket() {
             break
           case 'alarm_event':
             addAlarm(msg.data)
+            if (msg.data.is_derived && msg.data.root_cause_device_id) {
+              updateEdgePropagation(
+                msg.data.root_cause_device_id,
+                msg.data.event_type === 'triggered'
+              )
+            }
+            break
+          case 'topology_update':
+            handleTopologyUpdate(msg.data)
             break
         }
       } catch {}
     }
 
     ws.onclose = () => {
-      // Reconnect after 3 seconds
       setTimeout(() => {
         if (wsRef.current === ws) {
           wsRef.current = null
@@ -45,7 +55,6 @@ export function useWebSocket() {
       }, 3000)
     }
 
-    // Ping to keep alive
     const pingInterval = setInterval(() => {
       if (ws.readyState === WebSocket.OPEN) {
         ws.send('ping')

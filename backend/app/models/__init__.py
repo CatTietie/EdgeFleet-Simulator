@@ -64,6 +64,18 @@ class Device(Base):
     group = relationship("Group", back_populates="devices")
 
 
+class DeviceDependency(Base):
+    __tablename__ = "device_dependencies"
+
+    id = Column(String(36), primary_key=True)
+    org_id = Column(String(36), ForeignKey("organizations.id"), nullable=False)
+    parent_device_id = Column(String(64), ForeignKey("devices.id"), nullable=False)
+    child_device_id = Column(String(64), ForeignKey("devices.id"), nullable=False)
+    dependency_type = Column(String(32), nullable=False)
+    suppress_derived_notifications = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 class AlarmRule(Base):
     __tablename__ = "alarm_rules"
 
@@ -94,4 +106,7 @@ class AlarmEvent(Base):
     values = Column(JSON, default=dict)
     acknowledged = Column(Boolean, default=False)
     acknowledged_by = Column(String(36), nullable=True)
+    is_derived = Column(Boolean, default=False)
+    root_cause_device_id = Column(String(64), nullable=True)
+    root_cause_alarm_id = Column(String(128), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)

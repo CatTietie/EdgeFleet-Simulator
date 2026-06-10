@@ -17,6 +17,8 @@ from app.services.mqtt_ingestion import MqttIngestionService
 from app.services.rule_engine import RuleEngine
 from app.services.alarm_manager import AlarmManager
 from app.services.webhook_dispatcher import WebhookDispatcher
+from app.services.dependency_manager import DependencyManager
+from app.services.propagation_engine import PropagationEngine
 from app.rule_dsl.parser import parse_rule
 from app.websocket.manager import WebSocketManager
 
@@ -86,8 +88,18 @@ async def lifespan(app: FastAPI):
 
     logger.info(f"Loaded {rule_engine.rule_count} alarm rules")
 
+    # Device dependency manager
+    dependency_manager = DependencyManager()
+    async with async_session() as db:
+        await dependency_manager.load_from_db(db)
+    logger.info(f"Loaded {dependency_manager.edge_count} device dependencies")
+
+    # Propagation engine (observer on alarm events)
+    propagation_engine = PropagationEngine(dependency_manager, alarm_manager)
+    alarm_manager.add_listener(propagation_engine.on_alarm_event)
+
     # Register service singletons
-    set_services(rule_engine, alarm_manager, influx_query)
+    set_services(rule_engine, alarm_manager, influx_query, dependency_manager, propagation_engine)
 
     # MQTT ingestion
     ingestion = MqttIngestionService(influx_writer, rule_engine, ws_manager)
@@ -131,6 +143,7 @@ from app.api.v1.rules import router as rules_router
 from app.api.v1.alarms import router as alarms_router
 from app.api.v1.dashboard import router as dashboard_router
 from app.api.v1.tenants import router as tenants_router
+from app.api.v1.dependencies import router as dependencies_router
 from app.websocket.manager import router as ws_router
 
 app.include_router(auth_router, prefix="/api/v1")
@@ -139,6 +152,7 @@ app.include_router(rules_router, prefix="/api/v1")
 app.include_router(alarms_router, prefix="/api/v1")
 app.include_router(dashboard_router, prefix="/api/v1")
 app.include_router(tenants_router, prefix="/api/v1")
+app.include_router(dependencies_router, prefix="/api/v1")
 app.include_router(ws_router)
 
 
