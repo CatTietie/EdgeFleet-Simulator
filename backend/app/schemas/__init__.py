@@ -104,6 +104,7 @@ class RuleResponse(BaseModel):
     trigger_condition: dict
     recovery_condition: dict | None
     actions: dict
+    version: int
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -117,6 +118,7 @@ class RuleUpdate(BaseModel):
     trigger_condition: dict | None = None
     recovery_condition: dict | None = None
     actions: dict | None = None
+    version: int
 
 
 # Alarm Event

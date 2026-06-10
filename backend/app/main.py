@@ -1,6 +1,7 @@
 """FastAPI application entry point."""
 import asyncio
 import logging
+import uuid
 from contextlib import asynccontextmanager
 
 import redis.asyncio as aioredis
@@ -17,6 +18,8 @@ from app.services.mqtt_ingestion import MqttIngestionService
 from app.services.rule_engine import RuleEngine
 from app.services.alarm_manager import AlarmManager
 from app.services.webhook_dispatcher import WebhookDispatcher
+from app.services.state_persistence import StatePersistence
+from app.services.rule_sync import RuleSyncService
 from app.services.dependency_manager import DependencyManager
 from app.services.propagation_engine import PropagationEngine
 from app.rule_dsl.parser import parse_rule
@@ -54,7 +57,8 @@ async def lifespan(app: FastAPI):
     await webhook_dispatcher.start()
 
     alarm_manager = AlarmManager(webhook_dispatcher, redis_client)
-    rule_engine = RuleEngine(alarm_manager)
+    state_persistence = StatePersistence(redis_client)
+    rule_engine = RuleEngine(alarm_manager, state_persistence)
 
     influx_writer = InfluxWriter()
     await influx_writer.start()
@@ -65,7 +69,7 @@ async def lifespan(app: FastAPI):
     ws_manager = WebSocketManager(redis_client)
     app.state.ws_manager = ws_manager
 
-    # Load rules from DB
+    # Load rules from DB and restore persisted states
     async with async_session() as db:
         result = await db.execute(select(AlarmRule).where(AlarmRule.enabled == True))
         for db_rule in result.scalars().all():
@@ -83,10 +87,11 @@ async def lifespan(app: FastAPI):
             try:
                 parsed = parse_rule(rule_data)
                 rule_engine.register_rule(parsed)
+                await rule_engine.restore_states_for_rule(db_rule.org_id, db_rule.id)
             except Exception as e:
                 logger.error(f"Failed to load rule {db_rule.id}: {e}")
 
-    logger.info(f"Loaded {rule_engine.rule_count} alarm rules")
+    logger.info(f"Loaded {rule_engine.rule_count} alarm rules (states restored from Redis)")
 
     # Device dependency manager
     dependency_manager = DependencyManager()
@@ -98,8 +103,12 @@ async def lifespan(app: FastAPI):
     propagation_engine = PropagationEngine(dependency_manager, alarm_manager)
     alarm_manager.add_listener(propagation_engine.on_alarm_event)
 
+    # Rule sync service for multi-instance coordination
+    instance_id = str(uuid.uuid4())
+    rule_sync = RuleSyncService(redis_client, rule_engine, state_persistence, instance_id)
+
     # Register service singletons
-    set_services(rule_engine, alarm_manager, influx_query, dependency_manager, propagation_engine)
+    set_services(rule_engine, alarm_manager, influx_query, dependency_manager, propagation_engine, rule_sync)
 
     # MQTT ingestion
     ingestion = MqttIngestionService(influx_writer, rule_engine, ws_manager)
@@ -108,6 +117,9 @@ async def lifespan(app: FastAPI):
     # WebSocket Redis subscriber
     ws_task = asyncio.create_task(ws_manager.start_subscriber())
 
+    # Rule sync subscriber
+    rule_sync_task = asyncio.create_task(rule_sync.start_subscriber())
+
     yield
 
     # Shutdown
@@ -115,6 +127,7 @@ async def lifespan(app: FastAPI):
     ingestion.stop()
     mqtt_task.cancel()
     ws_task.cancel()
+    rule_sync_task.cancel()
     await influx_writer.stop()
     await influx_query.stop()
     await webhook_dispatcher.stop()

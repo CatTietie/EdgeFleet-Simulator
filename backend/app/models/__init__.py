@@ -89,6 +89,7 @@ class AlarmRule(Base):
     trigger_condition = Column(JSON, nullable=False)
     recovery_condition = Column(JSON, nullable=True)
     actions = Column(JSON, nullable=False)  # {webhook_urls, cooldown_seconds}
+    version = Column(Integer, nullable=False, default=1, server_default="1")
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

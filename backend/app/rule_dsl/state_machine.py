@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from app.rule_dsl.models import AlarmState
 
 BUFFER_MAX_LEN = 100
+PERSIST_BUFFER_LEN = 10
 STALE_TIMEOUT_MS = 60_000
 
 
@@ -51,6 +52,35 @@ class DeviceRuleState:
 
     def increment_false_streak(self):
         self.false_streak += 1
+
+    def to_checkpoint_dict(self) -> dict:
+        buffers_snapshot = {}
+        for metric, buf in self.buffers.items():
+            entries = list(buf)[-PERSIST_BUFFER_LEN:]
+            buffers_snapshot[metric] = entries
+        return {
+            "current_state": self.current_state.value,
+            "last_data_time_ms": self.last_data_time_ms,
+            "last_triggered_at_ms": self.last_triggered_at_ms,
+            "cooldown_until_ms": self.cooldown_until_ms,
+            "false_streak": self.false_streak,
+            "buffers": buffers_snapshot,
+        }
+
+    @classmethod
+    def from_checkpoint_dict(cls, device_id: str, rule_id: str, data: dict) -> DeviceRuleState:
+        state = cls(device_id=device_id, rule_id=rule_id)
+        state.current_state = AlarmState(data["current_state"])
+        state.last_data_time_ms = data.get("last_data_time_ms", 0)
+        state.last_triggered_at_ms = data.get("last_triggered_at_ms", 0)
+        state.cooldown_until_ms = data.get("cooldown_until_ms", 0)
+        state.false_streak = data.get("false_streak", 0)
+        for metric, entries in data.get("buffers", {}).items():
+            buf = deque(maxlen=BUFFER_MAX_LEN)
+            for entry in entries:
+                buf.append(tuple(entry))
+            state.buffers[metric] = buf
+        return state
 
 
 DEFAULT_RECOVERY_FALSE_STREAK = 5

@@ -4,6 +4,8 @@ import logging
 import time
 from dataclasses import dataclass
 
+import orjson
+
 from app.rule_dsl.models import (
     AlarmState,
     Condition,
@@ -17,6 +19,7 @@ from app.rule_dsl.state_machine import (
     DeviceRuleState,
     StateStore,
 )
+from app.services.state_persistence import StatePersistence
 
 logger = logging.getLogger(__name__)
 
@@ -36,12 +39,13 @@ class AlarmEvent:
 
 
 class RuleEngine:
-    def __init__(self, alarm_manager):
+    def __init__(self, alarm_manager, state_persistence: StatePersistence | None = None):
         self._rules: dict[str, RuleDef] = {}
         self._rule_index: dict[str, list[str]] = {}  # org_id -> [rule_ids]
         self._group_index: dict[tuple[str, str], list[str]] = {}  # (org_id, group_id) -> [rule_ids]
         self._state_store = StateStore()
         self._alarm_manager = alarm_manager
+        self._state_persistence = state_persistence or StatePersistence(None)
 
     def register_rule(self, rule: RuleDef):
         self._rules[rule.rule_id] = rule
@@ -88,6 +92,66 @@ class RuleEngine:
                 timestamp_ms=int(time.time() * 1000),
             )
             asyncio.create_task(self._alarm_manager.handle_event(event))
+
+    async def hot_reload_rule(self, old_rule_data: dict, new_rule_data: dict, new_rule: RuleDef, org_id: str):
+        """Reload a rule with minimal disruption.
+
+        If trigger_condition/recovery_condition/target changed: full reset.
+        If only actions changed: update in-place preserving state.
+        """
+        rule_id = new_rule.rule_id
+        structural_changed = (
+            orjson.dumps(old_rule_data.get("trigger_condition"), option=orjson.OPT_SORT_KEYS)
+            != orjson.dumps(new_rule_data.get("trigger_condition"), option=orjson.OPT_SORT_KEYS)
+            or orjson.dumps(old_rule_data.get("recovery_condition"), option=orjson.OPT_SORT_KEYS)
+            != orjson.dumps(new_rule_data.get("recovery_condition"), option=orjson.OPT_SORT_KEYS)
+            or orjson.dumps(old_rule_data.get("target"), option=orjson.OPT_SORT_KEYS)
+            != orjson.dumps(new_rule_data.get("target"), option=orjson.OPT_SORT_KEYS)
+        )
+
+        if structural_changed:
+            # Silent removal: clear indexes and state WITHOUT emitting fake recovery events.
+            # The trigger condition itself changed, so old ALARM states are meaningless —
+            # not a real "recovery" from the user's perspective.
+            self._remove_rule_silent(rule_id)
+            await self._state_persistence.clear_rule(org_id, rule_id)
+            self.register_rule(new_rule)
+        else:
+            self._rules[rule_id] = new_rule
+
+    def _remove_rule_silent(self, rule_id: str):
+        """Remove a rule from indexes and state store without emitting recovery events."""
+        rule = self._rules.pop(rule_id, None)
+        if not rule:
+            return
+
+        if rule.org_id in self._rule_index:
+            self._rule_index[rule.org_id] = [
+                rid for rid in self._rule_index[rule.org_id] if rid != rule_id
+            ]
+
+        if rule.target.scope == TargetScope.GROUP and rule.target.group_id:
+            key = (rule.org_id, rule.target.group_id)
+            if key in self._group_index:
+                self._group_index[key] = [
+                    rid for rid in self._group_index[key] if rid != rule_id
+                ]
+
+        self._state_store.remove_rule(rule_id)
+
+    async def restore_states_for_rule(self, org_id: str, rule_id: str):
+        """Restore persisted device states for a rule from Redis."""
+        states = await self._state_persistence.restore_rule(org_id, rule_id)
+        for device_id, state in states.items():
+            key = (device_id, rule_id)
+            self._state_store._states[key] = state
+        if states:
+            logger.info(f"Restored {len(states)} device states for rule {rule_id}")
+
+    async def unregister_rule_and_clear(self, rule_id: str, org_id: str):
+        """Unregister a rule and clear its persisted state from Redis."""
+        self.unregister_rule(rule_id)
+        await self._state_persistence.clear_rule(org_id, rule_id)
 
     def _find_applicable_rules(self, org_id: str, group_id: str, device_id: str) -> list[RuleDef]:
         applicable = []
@@ -143,6 +207,9 @@ class RuleEngine:
             event = self._evaluate_single(rule, state, data_point)
             if event:
                 await self._alarm_manager.handle_event(event)
+                asyncio.create_task(
+                    self._state_persistence.checkpoint(org_id, rule.rule_id, device_id, state)
+                )
 
     def _evaluate_single(self, rule: RuleDef, state: DeviceRuleState, data_point: dict) -> AlarmEvent | None:
         timestamp_ms = data_point["timestamp"]

@@ -12,6 +12,7 @@ _alarm_manager = None
 _influx_query = None
 _dependency_manager = None
 _propagation_engine = None
+_rule_sync = None
 
 
 async def get_db():
@@ -39,16 +40,22 @@ def get_propagation_engine():
     return _propagation_engine
 
 
+def get_rule_sync():
+    return _rule_sync
+
+
 def set_services(
     rule_engine,
     alarm_manager,
     influx_query,
     dependency_manager=None,
     propagation_engine=None,
+    rule_sync=None,
 ):
-    global _rule_engine, _alarm_manager, _influx_query, _dependency_manager, _propagation_engine
+    global _rule_engine, _alarm_manager, _influx_query, _dependency_manager, _propagation_engine, _rule_sync
     _rule_engine = rule_engine
     _alarm_manager = alarm_manager
     _influx_query = influx_query
     _dependency_manager = dependency_manager
     _propagation_engine = propagation_engine
+    _rule_sync = rule_sync
